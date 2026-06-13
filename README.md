@@ -1,64 +1,113 @@
-# Frobenius Norm & Matrix Operations
+# frobenius-norm: Matrix Norms and Inner Products
 
-**A Rust library for matrix computations centered on the Frobenius norm** — `||A||_F = √(Σ|aᵢⱼ|²)` — with additional operations including matrix multiplication, transpose, Frobenius inner product, and Frobenius distance.
+A linear algebra crate providing the **Frobenius norm**, **Frobenius inner product**, **Frobenius distance**, matrix multiplication, and transpose — all operating on row-major flat-storage matrices. Zero dependencies, fully tested.
 
 ## Why It Matters
 
-The Frobenius norm is the most common matrix norm in numerical computing. It measures the "size" of a matrix as if it were a flat vector, making it ideal for: measuring approximation error in low-rank decompositions (SVD, PCA), computing convergence criteria in iterative solvers, defining matrix regularization in machine learning (weight decay), and quantifying distance between weight matrices in neural network training. The Frobenius inner product `<A, B> = Σ aᵢⱼbᵢⱼ` generalizes the dot product to matrices and underlies matrix factorization objective functions.
+The Frobenius norm is the most commonly used matrix norm in machine learning, signal processing, and numerical analysis. It measures the "size" of a matrix the same way the Euclidean (L2) norm measures the size of a vector. Applications include:
+
+- **Loss functions**: Matrix factorization (PCA, NMF) minimizes ‖A − WH‖_F
+- **Compression quality**: ‖A − A_k‖_F for rank-k SVD truncation
+- **Convergence testing**: ‖X_{n+1} − X_n‖_F < ε
+- **Differential privacy**: Sensitivity is measured in Frobenius norm
+- **Quantum information**: The Hilbert–Schmidt norm equals the Frobenius norm for density matrices
 
 ## How It Works
 
-Matrices are stored in row-major order as a flat `Vec<f64>` alongside `rows` and `cols` dimensions. The Frobenius norm computes `√(Σ x²)` over all elements — **O(mn)** for an `m×n` matrix. The squared variant `frobenius_norm_sq()` skips the `sqrt` call, which is useful when comparing norms (the ordering is preserved) or when the squared value appears in objective functions.
+### Frobenius Norm
 
-Matrix multiplication uses the standard triple-nested loop (ikj order) — **O(mnp)** for `m×n` times `n×p`. The Frobenius inner product takes the element-wise product and sums — **O(mn)**. Distance between two matrices `||A - B||_F` computes `(a-b)²` per element then takes the square root — **O(mn)**.
+For an m×n matrix A with entries a_{ij}:
+
+$$\|A\|_F = \sqrt{\sum_{i=1}^{m}\sum_{j=1}^{n} |a_{ij}|^2} = \sqrt{\text{trace}(A^* A)}$$
+
+**Implementation**: Single pass over flat data, no intermediate allocation:
+
+```rust
+self.data.iter().map(|x| x * x).sum::<f64>().sqrt()
+```
+
+**Complexity**: O(mn) time, O(1) extra space.
+
+### Frobenius Inner Product
+
+$$\langle A, B \rangle_F = \sum_{i,j} a_{ij} \cdot b_{ij} = \text{trace}(A^T B)$$
+
+This reduces to a dot product on the flattened arrays. **Complexity**: O(mn).
+
+### Frobenius Distance
+
+$$d_F(A, B) = \|A - B\|_F = \sqrt{\sum_{i,j} (a_{ij} - b_{ij})^2}$$
+
+**Complexity**: O(mn).
+
+### Matrix Multiplication
+
+Standard triple-nested loop: C = A × B where A is m×k, B is k×n, C is m×n.
+
+$$c_{ij} = \sum_{l=1}^{k} a_{il} \cdot b_{lj}$$
+
+**Complexity**: O(mkn) time, O(mn) space.
+
+### Properties
+
+The Frobenius norm is **sub-multiplicative**: ‖AB‖_F ≤ ‖A‖_F · ‖B‖_F. It is also invariant under orthogonal transformations: ‖UAV‖_F = ‖A‖_F for orthogonal U, V.
+
+### Summary Table
+
+| Operation | Time | Space |
+|-----------|------|-------|
+| `frobenius_norm()` | O(mn) | O(1) |
+| `frobenius_norm_sq()` | O(mn) | O(1) |
+| `frobenius_inner(&B)` | O(mn) | O(1) |
+| `frobenius_distance(&B)` | O(mn) | O(1) |
+| `matmul(&B)` | O(mkn) | O(mn) |
+| `transpose()` | O(mn) | O(mn) |
 
 ## Quick Start
 
 ```rust
 use frobenius_norm::Matrix;
 
-fn main() {
-    // Create a matrix
-    let a = Matrix::from_2d(&[
-        &[1.0, 2.0],
-        &[3.0, 4.0],
-    ]);
+let a = Matrix::from_2d(&[&[1.0, 2.0], &[3.0, 4.0]]);
+let b = Matrix::zeros(2, 2);
 
-    // Frobenius norm: sqrt(1 + 4 + 9 + 16) = sqrt(30)
-    println!("||A||_F = {:.4}", a.frobenius_norm()); // 5.4772
+// ||A||_F = sqrt(1 + 4 + 9 + 16) = sqrt(30)
+assert!((a.frobenius_norm() - 30.0_f64.sqrt()).abs() < 1e-10);
 
-    // Matrix multiplication
-    let b = Matrix::from_2d(&[&[1.0, 0.0], &[0.0, 1.0]]);
-    let c = a.matmul(&b).unwrap();
-    println!("A · I = A, norm = {:.4}", c.frobenius_norm());
+// Distance from zero = ||A||_F
+assert!((a.frobenius_distance(&b).unwrap() - 30.0_f64.sqrt()).abs() < 1e-10);
 
-    // Frobenius distance between two matrices
-    let zeros = Matrix::zeros(2, 2);
-    let dist = a.frobenius_distance(&zeros).unwrap();
-    println!("||A - 0||_F = {:.4}", dist); // Same as ||A||_F
-
-    // Frobenius inner product
-    let ip = a.frobenius_inner(&b).unwrap();
-    println!("<A, I> = {:.4}", ip); // trace = 1 + 4 = 5
-}
+// Matrix multiply
+let t = a.matmul(&a).unwrap();
+// [[1,2],[3,4]]² = [[7,10],[15,22]]
+assert!((t.get(0, 0) - 7.0).abs() < 1e-10);
 ```
 
 ## API
 
-| Method | Complexity | Description |
-|---|---|---|
-| `Matrix::zeros(rows, cols)` | **O(mn)** | Create zero matrix |
-| `Matrix::from_2d(&[&[f64]])` | **O(mn)** | Create from 2D slice |
-| `frobenius_norm()` | **O(mn)** | `√(Σ|aᵢⱼ|²)` |
-| `frobenius_norm_sq()` | **O(mn)** | `Σ|aᵢⱼ|²` (no sqrt) |
-| `matmul(other)` | **O(mnp)** | Standard matrix multiplication |
-| `transpose()` | **O(mn)** | Transpose |
-| `frobenius_inner(other)` | **O(mn)** | Element-wise product sum |
-| `frobenius_distance(other)` | **O(mn)** | `||A - B||_F` |
+### `Matrix`
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `zeros(rows, cols)` | `() -> Self` | Zero-initialized matrix |
+| `from_2d(&[&[f64]])` | `() -> Self` | Construct from 2D slice |
+| `get(i, j)` / `set(i, j, v)` | `(usize, usize) -> f64` | Element access |
+| `frobenius_norm()` | `() -> f64` | ‖A‖_F |
+| `frobenius_norm_sq()` | `() -> f64` | ‖A‖_F² (no sqrt) |
+| `frobenius_inner(&B)` | `(&Matrix) -> Result<f64>` | ⟨A, B⟩_F |
+| `frobenius_distance(&B)` | `(&Matrix) -> Result<f64>` | ‖A − B‖_F |
+| `matmul(&B)` | `(&Matrix) -> Result<Matrix>` | A × B |
+| `transpose()` | `() -> Matrix` | Aᵀ |
 
 ## Architecture Notes
 
-Part of the SuperInstance linear algebra foundation. Companion crates include `grassmannian` (subspace geometry) and `fisher-information` (statistical matrices). See the [Architecture Guide](https://github.com/SuperInstance/SuperInstance/blob/main/ARCHITECTURE.md).
+This is a **γ (gamma)** module — pure mathematical operations on a flat `Vec<f64>`. The flat storage layout (row-major) is cache-friendly and interoperates with BLAS/LAPACK conventions. In the γ + η = C framework, this provides the normative measurement layer; **η** orchestration can build optimization loops (gradient descent on Frobenius loss, alternating minimization) on top.
+
+## References
+
+- Golub, G. H. & Van Loan, C. F. (2013). *Matrix Computations* (4th ed.). Johns Hopkins. §2.3.
+- Horn, R. A. & Johnson, C. R. (2012). *Matrix Analysis* (2nd ed.). Cambridge. Chapter 5.
+- Trefethen, L. N. & Bau, D. (1997). *Numerical Linear Algebra*. SIAM.
 
 ## License
 
